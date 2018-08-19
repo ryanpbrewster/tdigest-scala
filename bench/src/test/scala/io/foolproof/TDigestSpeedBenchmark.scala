@@ -29,12 +29,11 @@ object TDigestSpeedBenchmark {
     var size: Int = _
     var prng: Random = _
 
-    @Param(Array("original", "simplified", "transliterated"))
+    @Param(Array("transliterated", "original"))
     var estimatorType: String = _
 
     def newEstimator(): Estimator = estimatorType match {
       case "original" => new Original(100.0)
-      case "simplified" => new Simplified(100.0)
       case "transliterated" => new Transliterated(100.0)
     }
 
