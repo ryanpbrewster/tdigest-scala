@@ -3,7 +3,7 @@ package io.foolproof
 import java.util
 
 import com.tdunning.math.stats.MergingDigest
-import io.foolproof.stats.{Oracle, TransliterationImpl}
+import io.foolproof.stats.{Oracle, TDigest, TransliterationImpl}
 
 import scala.util.Random
 
@@ -16,11 +16,13 @@ object App {
 
     val buf = new Array[Double](N)
     val reference = new MergingDigest(100.0)
-    val transliterated = new TransliterationImpl(100.0)
+    val simplified = new TransliterationImpl(100.0)
+    val transliterated = new TDigest(100.0, maxSize = 500)
     for (i <- 0 until N) {
       val x = 5000.0 + 1000.0 * prng.nextGaussian()
       buf(i) = x
       reference.add(x)
+      simplified.add(x, 1.0)
       transliterated.add(x, 1.0)
     }
 
@@ -30,6 +32,7 @@ object App {
     for (q <- quantiles) {
       print(f"$q%.4f")
       print(f" ${oracle.rank(reference.quantile(q)) - q}%12.9f")
+      print(f" ${oracle.rank(simplified.quantile(q)) - q}%12.9f")
       print(f" ${oracle.rank(transliterated.quantile(q)) - q}%12.9f")
       println()
     }
