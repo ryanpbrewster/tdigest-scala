@@ -1,7 +1,6 @@
 package io.foolproof.stats;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 
 public class TransliterationImpl {
@@ -42,96 +41,59 @@ public class TransliterationImpl {
     private final ArrayList<Centroid> temp = new ArrayList<>();
 
     private final int maxSize;
-    private final int bufferSize;
 
 
-    /**
-     * Allocates a buffer merging t-digest.  This is the normally used constructor that
-     * allocates default sized internal arrays.  Other versions are available, but should
-     * only be used for special cases.
-     *
-     * @param compression The compression factor
-     */
-    @SuppressWarnings("WeakerAccess")
     public TransliterationImpl(double compression) {
         this(compression, -1);
     }
-
-    /**
-     * If you know the size of the temporary buffer for incoming points, you can use this entry point.
-     *
-     * @param compression Compression factor for t-digest.  Same as 1/\delta in the paper.
-     * @param bufferSize  How many samples to retain before merging.
-     */
-    @SuppressWarnings("WeakerAccess")
-    public TransliterationImpl(double compression, int bufferSize) {
-        // we can guarantee that we only need 2 * ceiling(compression).
-        this(compression, bufferSize, -1);
-    }
-
-    /**
-     * Fully specified constructor.  Normally only used for deserializing a buffer t-digest.
-     *
-     * @param compression Compression factor
-     * @param bufferSize  Number of temporary centroids
-     * @param maxSize        Size of main buffer
-     */
-    @SuppressWarnings("WeakerAccess")
-    public TransliterationImpl(double compression, int bufferSize, int maxSize) {
+    public TransliterationImpl(double compression, int maxSize) {
         this.compression = compression;
-        this.bufferSize = bufferSize > 0 ? bufferSize : (int) (5 * Math.ceil(compression));
-        this.maxSize = maxSize > 0 ? maxSize : (int) (2 * Math.ceil(compression)) + 10;
-
-        // points to the first unused centroid
-        int lastUsedCell = 0;
+        this.maxSize = maxSize > 0 ? maxSize : (int) (5 * Math.ceil(compression));
     }
 
     public void add(double x, double w) {
         if (Double.isNaN(x)) {
             throw new IllegalArgumentException("Cannot add NaN to t-digest");
         }
-        if (temp.size() >= bufferSize - centroids.size() - 1) {
-            mergeNewValues();
+        if (temp.size() >= maxSize - centroids.size() - 1) {
+            merge();
         }
         temp.add(new Centroid(x, w));
         unmergedWeight += w;
     }
 
-    private void mergeNewValues() {
-        if (unmergedWeight > 0) {
-            merge(temp, unmergedWeight);
-            temp.clear();
-            unmergedWeight = 0;
+    private void merge() {
+        if (temp.isEmpty()) {
+            return;
         }
-    }
-
-    private void merge(ArrayList<Centroid> incoming, double unmergedWeight) {
-        incoming.addAll(centroids);
+        for (Centroid c : temp) {
+            totalWeight += c.weight;
+        }
+        temp.addAll(centroids);
         centroids.clear();
-        Collections.sort(incoming);
+        Collections.sort(temp);
 
-        totalWeight += unmergedWeight;
         double normalizer = compression / (Math.PI * totalWeight);
 
-        assert incoming.size() > 0;
-        centroids.add(incoming.get(0));
         double wSoFar = 0;
-
-        for (int i = 1; i < incoming.size(); i++) {
-            double proposedWeight = centroids.get(centroids.size()-1).weight + incoming.get(i).weight;
+        Centroid acc = temp.get(0);
+        for (int i = 1; i < temp.size(); i++) {
+            double proposedWeight = acc.weight + temp.get(i).weight;
             double z = proposedWeight * normalizer;
             double q0 = wSoFar / totalWeight;
             double q2 = (wSoFar + proposedWeight) / totalWeight;
 
             if (z * z <= q0 * (1 - q0) && z * z <= q2 * (1 - q2)) {
                 // next point will fit, so merge into existing centroid
-                centroids.get(centroids.size()-1).add(incoming.get(i));
+                acc.add(temp.get(i));
             } else {
                 // didn't fit ... move to next output, copy out first centroid
-                wSoFar += centroids.get(centroids.size()-1).weight;
-                centroids.add(incoming.get(i));
+                wSoFar += acc.weight;
+                centroids.add(acc);
+                acc = temp.get(i);
             }
         }
+        centroids.add(acc);
 
         // sanity check
         double sum = 0;
@@ -144,13 +106,14 @@ public class TransliterationImpl {
             min = Math.min(min, centroids.get(0).mean);
             max = Math.max(max, centroids.get(centroids.size()-1).mean);
         }
+        temp.clear();
     }
 
     public double quantile(double q) {
         if (q < 0 || q > 1) {
             throw new IllegalArgumentException("q should be in [0,1], got " + q);
         }
-        mergeNewValues();
+        merge();
 
         if (centroids.isEmpty()) {
             // no centroids means no data, no way to get a quantile
