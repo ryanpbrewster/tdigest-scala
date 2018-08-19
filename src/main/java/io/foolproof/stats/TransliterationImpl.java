@@ -1,6 +1,8 @@
 package io.foolproof.stats;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 
 public class TransliterationImpl {
     private static final class Centroid implements Comparable<Centroid> {
@@ -9,6 +11,11 @@ public class TransliterationImpl {
         private Centroid(double mean, double weight) {
             this.mean = mean;
             this.weight = weight;
+        }
+
+        void add(Centroid that) {
+            this.weight += that.weight;
+            this.mean = this.mean + (that.mean - this.mean) * that.weight / this.weight;
         }
 
         @Override
@@ -35,8 +42,10 @@ public class TransliterationImpl {
 
     // this is the index of the next temporary centroid
     // this is a more Java-like convention than lastUsedCell uses
-    private int tempUsed = 0;
-    private final Centroid[] temp;
+    private final ArrayList<Centroid> temp = new ArrayList<>();
+
+    private final int maxSize;
+    private final int bufferSize;
 
 
     /**
@@ -68,19 +77,15 @@ public class TransliterationImpl {
      *
      * @param compression Compression factor
      * @param bufferSize  Number of temporary centroids
-     * @param size        Size of main buffer
+     * @param maxSize        Size of main buffer
      */
     @SuppressWarnings("WeakerAccess")
-    public TransliterationImpl(double compression, int bufferSize, int size) {
-        if (size == -1) {
-            size = (int) (2 * Math.ceil(compression)) + 10;
-        }
-        if (bufferSize == -1) {
-            bufferSize = (int) (5 * Math.ceil(compression));
-        }
+    public TransliterationImpl(double compression, int bufferSize, int maxSize) {
         this.compression = compression;
-        this.centroids = new Centroid[size];
-        this.temp = new Centroid[bufferSize];
+        this.bufferSize = bufferSize > 0 ? bufferSize : (int) (5 * Math.ceil(compression));
+        this.maxSize = maxSize > 0 ? maxSize : (int) (2 * Math.ceil(compression)) + 10;
+
+        this.centroids = new Centroid[this.maxSize];
         this.lastUsedCell = 0;
     }
 
@@ -88,58 +93,50 @@ public class TransliterationImpl {
         if (Double.isNaN(x)) {
             throw new IllegalArgumentException("Cannot add NaN to t-digest");
         }
-        if (tempUsed >= temp.length - lastUsedCell - 1) {
+        if (temp.size() >= bufferSize - lastUsedCell - 1) {
             mergeNewValues();
         }
-        int where = tempUsed++;
-        temp[where] = new Centroid(x, w);
+        temp.add(new Centroid(x, w));
         unmergedWeight += w;
     }
 
     private void mergeNewValues() {
         if (unmergedWeight > 0) {
-            merge(temp, tempUsed, unmergedWeight);
-            tempUsed = 0;
+            merge(temp, unmergedWeight);
+            temp.clear();
             unmergedWeight = 0;
-
         }
     }
 
-    private void merge(Centroid[] incoming, int incomingCount, double unmergedWeight) {
-        System.arraycopy(centroids, 0, temp, incomingCount, lastUsedCell);
-        incomingCount += lastUsedCell;
-        Arrays.sort(incoming, 0, incomingCount);
+    private void merge(ArrayList<Centroid> incoming, double unmergedWeight) {
+        for (int i = 0; i < lastUsedCell; i++) {
+            incoming.add(centroids[i]);
+        }
+        Collections.sort(incoming);
 
         totalWeight += unmergedWeight;
         double normalizer = compression / (Math.PI * totalWeight);
 
-        assert incomingCount > 0;
+        assert incoming.size() > 0;
         lastUsedCell = 0;
-        centroids[lastUsedCell] = incoming[0];
+        centroids[lastUsedCell] = incoming.get(0);
         double wSoFar = 0;
 
-        double k1 = 0;
-
-        // weight will contain all zeros
-        for (int i = 1; i < incomingCount; i++) {
-            double proposedWeight = centroids[lastUsedCell].weight + incoming[i].weight;
-            boolean addThis;
+        for (int i = 1; i < incoming.size(); i++) {
+            double proposedWeight = centroids[lastUsedCell].weight + incoming.get(i).weight;
             double z = proposedWeight * normalizer;
             double q0 = wSoFar / totalWeight;
             double q2 = (wSoFar + proposedWeight) / totalWeight;
-            addThis = z * z <= q0 * (1 - q0) && z * z <= q2 * (1 - q2);
 
-            if (addThis) {
-                // next point will fit
-                // so merge into existing centroid
-                centroids[lastUsedCell].weight += incoming[i].weight;
-                centroids[lastUsedCell].mean = centroids[lastUsedCell].mean + (incoming[i].mean - centroids[lastUsedCell].mean) * incoming[i].weight / centroids[lastUsedCell].weight;
+            if (z * z <= q0 * (1 - q0) && z * z <= q2 * (1 - q2)) {
+                // next point will fit, so merge into existing centroid
+                centroids[lastUsedCell].add(incoming.get(i));
             } else {
                 // didn't fit ... move to next output, copy out first centroid
                 wSoFar += centroids[lastUsedCell].weight;
 
                 lastUsedCell++;
-                centroids[lastUsedCell] = incoming[i];
+                centroids[lastUsedCell] = incoming.get(i);
             }
         }
         // points to next empty cell
