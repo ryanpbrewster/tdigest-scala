@@ -2,7 +2,22 @@ package io.foolproof.stats;
 
 import com.tdunning.math.stats.Sort;
 
+import java.util.Arrays;
+
 public class TransliterationImpl {
+    private static final class Centroid implements Comparable<Centroid> {
+        double mean;
+        double weight;
+        private Centroid(double mean, double weight) {
+            this.mean = mean;
+            this.weight = weight;
+        }
+
+        @Override
+        public int compareTo(Centroid that) {
+            return Double.compare(this.mean, that.mean);
+        }
+    }
     private final double compression;
 
     private double min = 0;
@@ -15,9 +30,7 @@ public class TransliterationImpl {
     private double totalWeight = 0;
 
     // number of points that have been added to each merged centroid
-    private final double[] weight;
-    // mean of points added to each merged centroid
-    private final double[] mean;
+    private final Centroid[] centroids;
 
     // sum_i tempWeight[i]
     private double unmergedWeight = 0;
@@ -25,13 +38,9 @@ public class TransliterationImpl {
     // this is the index of the next temporary centroid
     // this is a more Java-like convention than lastUsedCell uses
     private int tempUsed = 0;
-    private final double[] tempWeight;
-    private final double[] tempMean;
+    private final Centroid[] temp;
 
 
-    // array used for sorting the temp centroids.  This is a field
-    // to avoid allocations during operation
-    private final int[] order;
     private static boolean usePieceWiseApproximation = true;
     private static boolean useWeightLimit = true;
 
@@ -103,12 +112,9 @@ public class TransliterationImpl {
         }
         this.compression = compression;
 
-        weight = new double[size];
-        mean = new double[size];
+        centroids = new Centroid[size];
 
-        tempWeight = new double[bufferSize];
-        tempMean = new double[bufferSize];
-        order = new int[bufferSize];
+        temp = new Centroid[bufferSize];
 
         lastUsedCell = 0;
     }
@@ -117,41 +123,34 @@ public class TransliterationImpl {
         if (Double.isNaN(x)) {
             throw new IllegalArgumentException("Cannot add NaN to t-digest");
         }
-        if (tempUsed >= tempWeight.length - lastUsedCell - 1) {
+        if (tempUsed >= temp.length - lastUsedCell - 1) {
             mergeNewValues();
         }
         int where = tempUsed++;
-        tempWeight[where] = w;
-        tempMean[where] = x;
+        temp[where] = new Centroid(x, w);
         unmergedWeight += w;
     }
 
     private void mergeNewValues() {
         if (unmergedWeight > 0) {
-            merge(tempMean, tempWeight, tempUsed, order, unmergedWeight);
+            merge(temp, tempUsed, unmergedWeight);
             tempUsed = 0;
             unmergedWeight = 0;
 
         }
     }
 
-    private void merge(double[] incomingMean, double[] incomingWeight, int incomingCount, int[] incomingOrder, double unmergedWeight) {
-        System.arraycopy(mean, 0, incomingMean, incomingCount, lastUsedCell);
-        System.arraycopy(weight, 0, incomingWeight, incomingCount, lastUsedCell);
+    private void merge(Centroid[] incoming, int incomingCount, double unmergedWeight) {
+        System.arraycopy(centroids, 0, temp, incomingCount, lastUsedCell);
         incomingCount += lastUsedCell;
-
-        if (incomingOrder == null) {
-            incomingOrder = new int[incomingCount];
-        }
-        Sort.sort(incomingOrder, incomingMean, incomingCount);
+        Arrays.sort(incoming, 0, incomingCount);
 
         totalWeight += unmergedWeight;
         double normalizer = compression / (Math.PI * totalWeight);
 
         assert incomingCount > 0;
         lastUsedCell = 0;
-        mean[lastUsedCell] = incomingMean[incomingOrder[0]];
-        weight[lastUsedCell] = incomingWeight[incomingOrder[0]];
+        centroids[lastUsedCell] = incoming[0];
         double wSoFar = 0;
 
         double k1 = 0;
@@ -160,8 +159,7 @@ public class TransliterationImpl {
         double wLimit;
         wLimit = totalWeight * integratedQ(k1 + 1);
         for (int i = 1; i < incomingCount; i++) {
-            int ix = incomingOrder[i];
-            double proposedWeight = weight[lastUsedCell] + incomingWeight[ix];
+            double proposedWeight = centroids[lastUsedCell].weight + incoming[i].weight;
             double projectedW = wSoFar + proposedWeight;
             boolean addThis;
             if (useWeightLimit) {
@@ -176,21 +174,18 @@ public class TransliterationImpl {
             if (addThis) {
                 // next point will fit
                 // so merge into existing centroid
-                weight[lastUsedCell] += incomingWeight[ix];
-                mean[lastUsedCell] = mean[lastUsedCell] + (incomingMean[ix] - mean[lastUsedCell]) * incomingWeight[ix] / weight[lastUsedCell];
-                incomingWeight[ix] = 0;
+                centroids[lastUsedCell].weight += incoming[i].weight;
+                centroids[lastUsedCell].mean = centroids[lastUsedCell].mean + (incoming[i].mean - centroids[lastUsedCell].mean) * incoming[i].weight / centroids[lastUsedCell].weight;
             } else {
                 // didn't fit ... move to next output, copy out first centroid
-                wSoFar += weight[lastUsedCell];
+                wSoFar += centroids[lastUsedCell].weight;
                 if (!useWeightLimit) {
                     k1 = integratedLocation(wSoFar / totalWeight);
                     wLimit = totalWeight * integratedQ(k1 + 1);
                 }
 
                 lastUsedCell++;
-                mean[lastUsedCell] = incomingMean[ix];
-                weight[lastUsedCell] = incomingWeight[ix];
-                incomingWeight[ix] = 0;
+                centroids[lastUsedCell] = incoming[i];
             }
         }
         // points to next empty cell
@@ -199,13 +194,13 @@ public class TransliterationImpl {
         // sanity check
         double sum = 0;
         for (int i = 0; i < lastUsedCell; i++) {
-            sum += weight[i];
+            sum += centroids[i].weight;
         }
         assert sum == totalWeight;
 
         if (totalWeight > 0) {
-            min = Math.min(min, mean[0]);
-            max = Math.max(max, mean[lastUsedCell - 1]);
+            min = Math.min(min, centroids[0].mean);
+            max = Math.max(max, centroids[lastUsedCell - 1].mean);
         }
     }
 
@@ -331,12 +326,12 @@ public class TransliterationImpl {
         }
         mergeNewValues();
 
-        if (lastUsedCell == 0 && weight[lastUsedCell] == 0) {
+        if (lastUsedCell == 0 && centroids[lastUsedCell].weight == 0) {
             // no centroids means no data, no way to get a quantile
             return Double.NaN;
         } else if (lastUsedCell == 0) {
             // with one data point, all quantiles lead to Rome
-            return mean[0];
+            return centroids[0].mean;
         }
 
         // we know that there are at least two centroids now
@@ -346,31 +341,31 @@ public class TransliterationImpl {
         final double index = q * totalWeight;
 
         // at the boundaries, we return min or max
-        if (index < weight[0] / 2) {
-            assert weight[0] > 0;
-            return min + 2 * index / weight[0] * (mean[0] - min);
+        if (index < centroids[0].weight / 2) {
+            assert centroids[0].weight > 0;
+            return min + 2 * index / centroids[0].weight * (centroids[0].mean - min);
         }
 
         // in between we interpolate between centroids
-        double weightSoFar = weight[0] / 2;
+        double weightSoFar = centroids[0].weight / 2;
         for (int i = 0; i < n - 1; i++) {
-            double dw = (weight[i] + weight[i + 1]) / 2;
+            double dw = (centroids[i].weight + centroids[i + 1].weight) / 2;
             if (weightSoFar + dw > index) {
                 // centroids i and i+1 bracket our current point
                 double z1 = index - weightSoFar;
                 double z2 = weightSoFar + dw - index;
-                return weightedAverage(mean[i], z2, mean[i + 1], z1);
+                return weightedAverage(centroids[i].mean, z2, centroids[i + 1].mean, z1);
             }
             weightSoFar += dw;
         }
         assert index <= totalWeight;
-        assert index >= totalWeight - weight[n - 1] / 2;
+        assert index >= totalWeight - centroids[n - 1].weight / 2;
 
         // weightSoFar = totalWeight - weight[n-1]/2 (very nearly)
         // so we interpolate out to max value ever seen
-        double z1 = index - totalWeight - weight[n - 1] / 2.0;
-        double z2 = weight[n - 1] / 2 - z1;
-        return weightedAverage(mean[n - 1], z1, max, z2);
+        double z1 = index - totalWeight - centroids[n - 1].weight / 2.0;
+        double z2 = centroids[n - 1].weight / 2 - z1;
+        return weightedAverage(centroids[n - 1].mean, z1, max, z2);
     }
 
     private static double weightedAverage(double x1, double w1, double x2, double w2) {
