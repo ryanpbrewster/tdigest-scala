@@ -56,7 +56,7 @@ object TDigestSpeedBenchmark {
   class Simplified(z: Double) extends SimplifiedDigest(z) with Estimator {
     override def add(x: Double): Unit = add(x, 1.0)
   }
-  class Transliterated(z: Double) extends TDigest(z, (5*z).toInt) with Estimator {
+  class Transliterated(z: Double) extends TDigest(z, (10*z).toInt) with Estimator {
     override def add(x: Double): Unit = add(x, 1.0)
   }
 }

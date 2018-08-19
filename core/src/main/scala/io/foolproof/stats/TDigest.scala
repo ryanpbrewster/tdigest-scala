@@ -12,9 +12,9 @@ class TDigest(compression: Double, bufferSize: Int) {
   private var totalWeight = 0.0
   private var bufferedWeight = 0.0
 
-  private final val centroids = Array.fill[Centroid](bufferSize)(new Centroid(0, 0))
+  private final val centroids = new Array[Centroid](bufferSize)
   private var numCentroids = 0
-  private final val buffer = Array.fill[Centroid](bufferSize)(new Centroid(0, 0))
+  private final val buffer = new Array[Centroid](bufferSize)
   private var numBuffered = 0
 
 
@@ -22,8 +22,7 @@ class TDigest(compression: Double, bufferSize: Int) {
     if (numBuffered + numCentroids + 1 > bufferSize) {
       flushBuffer()
     }
-    buffer(numBuffered).mean = x
-    buffer(numBuffered).weight = w
+    buffer(numBuffered) = new Centroid(x, w)
     bufferedWeight += w
     numBuffered += 1
   }
@@ -113,9 +112,11 @@ class TDigest(compression: Double, bufferSize: Int) {
     centroids(numCentroids) = acc
     numCentroids += 1
 
-    if (totalWeight > 0) {
-      min = Math.min(min, centroids(0).mean)
-      max = Math.max(max, centroids(numCentroids - 1).mean)
+    if (min > centroids(0).mean) {
+      min = centroids(0).mean
+    }
+    if (max < centroids(numCentroids - 1).mean) {
+      max = centroids(numCentroids - 1).mean
     }
     numBuffered = 0
     bufferedWeight = 0
