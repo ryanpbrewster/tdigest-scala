@@ -17,7 +17,7 @@ object App {
     val buf = new Array[Double](N)
     val reference = new MergingDigest(100.0)
     val simplified = new SimplifiedDigest(100.0)
-    val transliterated = new TDigest(100.0, maxSize = 500)
+    val transliterated = new TDigest(100.0, bufferSize = 500)
     for (i <- 0 until N) {
       val x = 5000.0 + 1000.0 * prng.nextGaussian()
       buf(i) = x

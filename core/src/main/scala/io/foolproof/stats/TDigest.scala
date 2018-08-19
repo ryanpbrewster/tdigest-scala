@@ -3,124 +3,132 @@ package io.foolproof.stats
 import java.util
 import java.util.Comparator
 
-class TDigest(compression: Double, maxSize: Int) {
+class TDigest(compression: Double, bufferSize: Int) {
   import TDigest._
 
   private var min = 0.0
   private var max = 0.0
 
   private var totalWeight = 0.0
+  private var bufferedWeight = 0.0
 
-  private final val centroids = new util.ArrayList[Centroid]()
-  private final val temp = new util.ArrayList[Centroid]()
+  private final val centroids = new Array[Centroid](bufferSize)
+  private var numCentroids = 0
+  private final val buffer = new Array[Centroid](bufferSize)
+  private var numBuffered = 0
 
 
   def add(x: Double, w: Double): Unit = {
-    if (temp.size >= maxSize - centroids.size - 1) {
+    if (numBuffered + numCentroids + 1 > bufferSize) {
       flushBuffer()
     }
-    temp.add(Centroid(x, w))
+    buffer(numBuffered) = Centroid(x, w)
+    bufferedWeight += w
+    numBuffered += 1
   }
 
 
   def quantile(q: Double): Double = {
-    if (q < 0 || q > 1) {
-      throw new IllegalArgumentException("q should be in [0,1], got " + q)
-    }
     flushBuffer()
 
-    if (centroids.isEmpty) {
+    if (numCentroids == 0) {
       // no centroids means no data, no way to get a quantile
       return Double.NaN
-    } else if (centroids.size == 1) {
+    } else if (numCentroids == 1) {
       // with one data point, all quantiles lead to Rome
-      return centroids.get(0).mean
+      return centroids(0).mean
+    } else if (q <= 0) {
+      return min
+    } else if (q >= 1) {
+      return max
     }
 
     // we know that there are at least two centroids now
-    val n = centroids.size
+    val n = numCentroids
 
     // if values were stored in a sorted array, index would be the offset we are interested in
     val index = q * totalWeight
 
     // at the boundaries, we return min or max
-    if (index < centroids.get(0).weight / 2) {
-      assert(centroids.get(0).weight > 0)
-      return min + 2 * index / centroids.get(0).weight * (centroids.get(0).mean - min)
+    if (index < centroids(0).weight / 2) {
+      assert(centroids(0).weight > 0)
+      return min + 2 * index / centroids(0).weight * (centroids(0).mean - min)
     }
 
     // in between we interpolate between centroids
-    var weightSoFar = centroids.get(0).weight / 2
+    var weightSoFar = centroids(0).weight / 2
     for (i <- 0 until n - 1) {
-      val dw = (centroids.get(i).weight + centroids.get(i + 1).weight) / 2
+      val dw = (centroids(i).weight + centroids(i + 1).weight) / 2
       if (weightSoFar + dw > index) {
         // centroids i and i+1 bracket our current point
         val z1 = index - weightSoFar
         val z2 = weightSoFar + dw - index
-        return weightedAverage(centroids.get(i).mean, z2, centroids.get(i + 1).mean, z1)
+        return weightedAverage(centroids(i).mean, z2, centroids(i + 1).mean, z1)
       }
       weightSoFar += dw
     }
     assert(index <= totalWeight)
-    assert(index >= totalWeight - centroids.get(n - 1).weight / 2)
+    assert(index >= totalWeight - centroids(n - 1).weight / 2)
 
     // weightSoFar = totalWeight - weight[n-1]/2 (very nearly)
     // so we interpolate out to max value ever seen
-    val z1 = index - totalWeight - centroids.get(n - 1).weight / 2.0
-    val z2 = centroids.get(n - 1).weight / 2 - z1
-    weightedAverage(centroids.get(n - 1).mean, z1, max, z2)
+    val z1 = index - totalWeight - centroids(n - 1).weight / 2.0
+    val z2 = centroids(n - 1).weight / 2 - z1
+    weightedAverage(centroids(n - 1).mean, z1, max, z2)
   }
 
   private def flushBuffer(): Unit = {
-    if (temp.isEmpty) {
+    if (buffer.isEmpty) {
       return
     }
-    for (i <- 0 until temp.size()) {
-      totalWeight += temp.get(i).weight
-    }
-    temp.addAll(centroids)
-    centroids.clear()
-    temp.sort(Comparator.naturalOrder())
+
+    System.arraycopy(centroids, 0, buffer, numBuffered, numCentroids)
+    totalWeight += bufferedWeight
+    numBuffered += numCentroids
+    numCentroids = 0
+    util.Arrays.sort(buffer, 0, numBuffered, CENTROID_COMPARATOR)
 
     val normalizer = compression / (Math.PI * totalWeight)
 
     var wSoFar = 0.0
-    var acc = temp.get(0)
-    for (i <- 1 until temp.size) {
-      val proposedWeight = acc.weight + temp.get(i).weight
+    var acc = buffer(0)
+    for (i <- 1 until numBuffered) {
+      val proposedWeight = acc.weight + buffer(i).weight
       val z = proposedWeight * normalizer
       val q0 = wSoFar / totalWeight
       val q2 = (wSoFar + proposedWeight) / totalWeight
 
       if (z * z <= q0 * (1 - q0) && z * z <= q2 * (1 - q2)) {
         // next point will fit, so merge into existing centroid
-        acc.add(temp.get(i))
+        acc.add(buffer(i))
       } else {
         // didn't fit ... move to next output, copy out first centroid
         wSoFar += acc.weight
-        centroids.add(acc)
-        acc = temp.get(i)
+        centroids(numCentroids) = acc
+        numCentroids += 1
+        acc = buffer(i)
       }
     }
-    centroids.add(acc)
+    centroids(numCentroids) = acc
+    numCentroids += 1
 
     if (totalWeight > 0) {
-      min = Math.min(min, centroids.get(0).mean)
-      max = Math.max(max, centroids.get(centroids.size() - 1).mean)
+      min = Math.min(min, centroids(0).mean)
+      max = Math.max(max, centroids(numCentroids - 1).mean)
     }
-    temp.clear()
+    numBuffered = 0
+    bufferedWeight = 0
   }
 }
 
 object TDigest {
-  private final case class Centroid(var mean: Double, var weight: Double) extends Comparable[Centroid] {
+  private final case class Centroid(var mean: Double, var weight: Double) {
     def add(that: Centroid): Unit = {
       this.mean = (this.mean * this.weight + that.mean * that.weight) / (this.weight + that.weight)
       this.weight += that.weight
     }
-
-    override def compareTo(that: Centroid): Int = this.mean.compareTo(that.mean)
   }
+  private final val CENTROID_COMPARATOR: Comparator[Centroid] = (a: Centroid, b: Centroid) => a.mean.compareTo(b.mean)
 
 
   private def weightedAverage(x1: Double, w1: Double, x2: Double, w2: Double): Double = {

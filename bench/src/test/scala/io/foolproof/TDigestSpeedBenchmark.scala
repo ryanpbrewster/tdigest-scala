@@ -44,8 +44,8 @@ object TDigestSpeedBenchmark {
       prng = new Random(42)
       size = scenarioSize match {
         case "small" => 1e2.toInt
-        case "medium" => 1e5.toInt
-        case "large" => 1e8.toInt
+        case "medium" => 1e4.toInt
+        case "large" => 1e6.toInt
       }
     }
   }
