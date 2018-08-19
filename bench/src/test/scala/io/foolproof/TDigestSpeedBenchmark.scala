@@ -24,7 +24,7 @@ class TDigestSpeedBenchmark {
 object TDigestSpeedBenchmark {
   @State(Scope.Benchmark)
   class AddScenario {
-    @Param(Array("small", "medium", "large"))
+    @Param(Array("small", "medium"))
     var scenarioSize: String = _
     var size: Int = _
     var prng: Random = _
@@ -45,7 +45,6 @@ object TDigestSpeedBenchmark {
       size = scenarioSize match {
         case "small" => 1e2.toInt
         case "medium" => 1e4.toInt
-        case "large" => 1e6.toInt
       }
     }
   }
