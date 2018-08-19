@@ -2,9 +2,6 @@ package io.foolproof.stats;
 
 import com.tdunning.math.stats.Sort;
 
-import java.nio.ByteBuffer;
-import java.util.*;
-
 public class TransliterationImpl {
     private final double compression;
 
@@ -213,50 +210,6 @@ public class TransliterationImpl {
     }
 
     /**
-     * Exposed for testing.
-     */
-    int checkWeights() {
-        return checkWeights(weight, totalWeight, lastUsedCell);
-    }
-
-    private int checkWeights(double[] w, double total, int last) {
-        int badCount = 0;
-
-        int n = last;
-        if (w[n] > 0) {
-            n++;
-        }
-
-        double k1 = 0;
-        double q = 0;
-        double left = 0;
-        String header = "\n";
-        for (int i = 0; i < n; i++) {
-            double dq = w[i] / total;
-            double k2 = integratedLocation(q + dq);
-            q += dq / 2;
-            if (k2 - k1 > 1 && w[i] != 1) {
-                System.out.printf("%sOversize centroid at " +
-                                "%d, k0=%.2f, k1=%.2f, dk=%.2f, w=%.2f, q=%.4f, dq=%.4f, left=%.1f, current=%.2f maxw=%.2f\n",
-                        header, i, k1, k2, k2 - k1, w[i], q, dq, left, w[i], Math.PI * total / compression * Math.sqrt(q * (1 - q)));
-                header = "";
-                badCount++;
-            }
-            if (k2 - k1 > 4 && w[i] != 1) {
-                throw new IllegalStateException(
-                        String.format("Egregiously oversized centroid at " +
-                                        "%d, k0=%.2f, k1=%.2f, dk=%.2f, w=%.2f, q=%.4f, dq=%.4f, left=%.1f, current=%.2f, maxw=%.2f\n",
-                                i, k1, k2, k2 - k1, w[i], q, dq, left, w[i], Math.PI * total / compression * Math.sqrt(q * (1 - q))));
-            }
-            q += dq / 2;
-            left += w[i];
-            k1 = k2;
-        }
-
-        return badCount;
-    }
-
-    /**
      * Converts a quantile into a centroid scale value.  The centroid scale is nominally
      * the number k of the centroid that a quantile point q should belong to.  Due to
      * round-offs, however, we can't align things perfectly without splitting points
@@ -281,7 +234,7 @@ public class TransliterationImpl {
         return (Math.sin(Math.min(k, compression) * Math.PI / compression - Math.PI / 2) + 1) / 2;
     }
 
-    static double asinApproximation(double x) {
+    private static double asinApproximation(double x) {
         if (usePieceWiseApproximation) {
             if (x < 0) {
                 return -asinApproximation(-x);
@@ -372,14 +325,6 @@ public class TransliterationImpl {
     }
 
 
-    public void compress() {
-        mergeNewValues();
-    }
-
-    public long size() {
-        return (long) (totalWeight + unmergedWeight);
-    }
-
     public double quantile(double q) {
         if (q < 0 || q > 1) {
             throw new IllegalArgumentException("q should be in [0,1], got " + q);
@@ -428,15 +373,7 @@ public class TransliterationImpl {
         return weightedAverage(mean[n - 1], z1, max, z2);
     }
 
-    public int centroidCount() {
-        return lastUsedCell;
-    }
-
-    public double compression() {
-        return compression;
-    }
-
-    static double weightedAverage(double x1, double w1, double x2, double w2) {
+    private static double weightedAverage(double x1, double w1, double x2, double w2) {
         if (x1 <= x2) {
             return weightedAverageSorted(x1, w1, x2, w2);
         } else {
@@ -455,9 +392,5 @@ public class TransliterationImpl {
         assert x1 <= x2;
         final double x = (x1 * w1 + x2 * w2) / (w1 + w2);
         return Math.max(x1, Math.min(x, x2));
-    }
-
-    static double interpolate(double x, double x0, double x1) {
-
     }
 }
