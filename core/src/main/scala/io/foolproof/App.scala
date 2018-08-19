@@ -3,7 +3,7 @@ package io.foolproof
 import java.util
 
 import com.tdunning.math.stats.MergingDigest
-import io.foolproof.stats.{Oracle, TDigest, TransliterationImpl}
+import io.foolproof.stats.{Oracle, TDigest, SimplifiedDigest}
 
 import scala.util.Random
 
@@ -16,7 +16,7 @@ object App {
 
     val buf = new Array[Double](N)
     val reference = new MergingDigest(100.0)
-    val simplified = new TransliterationImpl(100.0)
+    val simplified = new SimplifiedDigest(100.0)
     val transliterated = new TDigest(100.0, maxSize = 500)
     for (i <- 0 until N) {
       val x = 5000.0 + 1000.0 * prng.nextGaussian()

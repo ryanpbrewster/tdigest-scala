@@ -3,7 +3,7 @@ package io.foolproof.stats;
 import java.util.ArrayList;
 import java.util.Collections;
 
-public class TransliterationImpl {
+public class SimplifiedDigest {
     private final double compression;
     private final int maxSize;
 
@@ -15,7 +15,7 @@ public class TransliterationImpl {
     private final ArrayList<Centroid> centroids = new ArrayList<>();
     private final ArrayList<Centroid> temp = new ArrayList<>();
 
-    public TransliterationImpl(double compression) {
+    public SimplifiedDigest(double compression) {
         this.compression = compression;
         this.maxSize = (int) (5 * Math.ceil(compression));
     }
