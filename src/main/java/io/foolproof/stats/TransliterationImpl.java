@@ -4,51 +4,20 @@ import java.util.ArrayList;
 import java.util.Collections;
 
 public class TransliterationImpl {
-    private static final class Centroid implements Comparable<Centroid> {
-        double mean;
-        double weight;
-        private Centroid(double mean, double weight) {
-            this.mean = mean;
-            this.weight = weight;
-        }
-
-        void add(Centroid that) {
-            this.weight += that.weight;
-            this.mean = this.mean + (that.mean - this.mean) * that.weight / this.weight;
-        }
-
-        @Override
-        public int compareTo(Centroid that) {
-            return Double.compare(this.mean, that.mean);
-        }
-    }
     private final double compression;
+    private final int maxSize;
 
     private double min = 0;
     private double max = 0;
 
-    // sum_i weight[i]  See also unmergedWeight
     private double totalWeight = 0;
 
-    // number of points that have been added to each merged centroid
     private final ArrayList<Centroid> centroids = new ArrayList<>();
-
-    // sum_i tempWeight[i]
-    private double unmergedWeight = 0;
-
-    // this is the index of the next temporary centroid
-    // this is a more Java-like convention than lastUsedCell uses
     private final ArrayList<Centroid> temp = new ArrayList<>();
 
-    private final int maxSize;
-
-
     public TransliterationImpl(double compression) {
-        this(compression, -1);
-    }
-    public TransliterationImpl(double compression, int maxSize) {
         this.compression = compression;
-        this.maxSize = maxSize > 0 ? maxSize : (int) (5 * Math.ceil(compression));
+        this.maxSize = (int) (5 * Math.ceil(compression));
     }
 
     public void add(double x, double w) {
@@ -56,13 +25,12 @@ public class TransliterationImpl {
             throw new IllegalArgumentException("Cannot add NaN to t-digest");
         }
         if (temp.size() >= maxSize - centroids.size() - 1) {
-            merge();
+            flushBuffer();
         }
         temp.add(new Centroid(x, w));
-        unmergedWeight += w;
     }
 
-    private void merge() {
+    private void flushBuffer() {
         if (temp.isEmpty()) {
             return;
         }
@@ -113,7 +81,7 @@ public class TransliterationImpl {
         if (q < 0 || q > 1) {
             throw new IllegalArgumentException("q should be in [0,1], got " + q);
         }
-        merge();
+        flushBuffer();
 
         if (centroids.isEmpty()) {
             // no centroids means no data, no way to get a quantile
@@ -158,23 +126,27 @@ public class TransliterationImpl {
     }
 
     private static double weightedAverage(double x1, double w1, double x2, double w2) {
-        if (x1 <= x2) {
-            return weightedAverageSorted(x1, w1, x2, w2);
-        } else {
-            return weightedAverageSorted(x2, w2, x1, w1);
-        }
-    }
-
-    /**
-     * Compute the weighted average between <code>x1</code> with a weight of
-     * <code>w1</code> and <code>x2</code> with a weight of <code>w2</code>.
-     * This expects <code>x1</code> to be less than or equal to <code>x2</code>
-     * and is guaranteed to return a number between <code>x1</code> and
-     * <code>x2</code>.
-     */
-    private static double weightedAverageSorted(double x1, double w1, double x2, double w2) {
         assert x1 <= x2;
         final double x = (x1 * w1 + x2 * w2) / (w1 + w2);
         return Math.max(x1, Math.min(x, x2));
+    }
+
+    private static final class Centroid implements Comparable<Centroid> {
+        private double mean;
+        private double weight;
+        private Centroid(double mean, double weight) {
+            this.mean = mean;
+            this.weight = weight;
+        }
+
+        void add(Centroid that) {
+            this.mean = (this.mean * this.weight + that.mean * that.weight) / (this.weight + that.weight);
+            this.weight += that.weight;
+        }
+
+        @Override
+        public int compareTo(Centroid that) {
+            return Double.compare(this.mean, that.mean);
+        }
     }
 }
