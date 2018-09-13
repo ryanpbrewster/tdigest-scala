@@ -11,40 +11,32 @@ class TDigestSpeedBenchmark {
   @Benchmark
   @BenchmarkMode(Array(Mode.AverageTime))
   @OutputTimeUnit(TimeUnit.NANOSECONDS)
+  @Fork(1)
+  @Warmup(iterations = 5, time = 3)
+  @Measurement(iterations = 5, time = 3)
   def runAdd(scenario: TDigestSpeedBenchmark.AddScenario): Any = {
-    val estimator = scenario.newEstimator()
-    for (i <- 0 until scenario.size) {
-      val x = 5000.0 + 1000.0 * scenario.prng.nextDouble()
-      estimator.add(x)
-    }
-    estimator.quantile(0.99)
+    val x = 5000.0 + 1000.0 * scenario.prng.nextDouble()
+    scenario.estimator.add(x)
   }
 }
 
 object TDigestSpeedBenchmark {
   @State(Scope.Benchmark)
   class AddScenario {
-    @Param(Array("small", "medium"))
-    var scenarioSize: String = _
-    var size: Int = _
     var prng: Random = _
+    var estimator: Estimator = _
 
     @Param(Array("simplified", "transliterated", "original"))
     var estimatorType: String = _
-
-    def newEstimator(): Estimator = estimatorType match {
-      case "original" => new Original(100.0)
-      case "simplified" => new Simplified(100.0)
-      case "transliterated" => new Transliterated(100.0)
-    }
 
 
     @Setup
     def setUp(): Unit = {
       prng = new Random(42)
-      size = scenarioSize match {
-        case "small" => 1e2.toInt
-        case "medium" => 1e4.toInt
+      estimator = estimatorType match {
+        case "original" => new Original(100.0)
+        case "simplified" => new Simplified(100.0)
+        case "transliterated" => new Transliterated(100.0)
       }
     }
   }
